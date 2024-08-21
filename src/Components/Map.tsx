@@ -20,7 +20,6 @@ const Map: React.FC = () => {
 
   const onLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
-    // Attempt to get the user's current location
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -30,12 +29,12 @@ const Map: React.FC = () => {
         },
         () => {
           console.error("Error getting current location");
-          map.setCenter(defaultCenter); // Fallback to default center if location cannot be retrieved
+          map.setCenter(defaultCenter);
         }
       );
     } else {
       console.error("Geolocation is not supported by this browser.");
-      map.setCenter(defaultCenter); // Fallback to default center if geolocation is not supported
+      map.setCenter(defaultCenter);
     }
   }, []);
 
@@ -44,8 +43,8 @@ const Map: React.FC = () => {
   }, []);
 
   const onPolygonComplete = useCallback((polygon: google.maps.Polygon) => {
-    setPolygons((prevPolygons) => [...prevPolygons, polygon]);
     polygon.setMap(null); // Remove the polygon from DrawingManager after it's drawn
+    setPolygons((prevPolygons) => [...prevPolygons, polygon]);
     polygon.addListener("click", () => {
       const index = polygons.indexOf(polygon);
       setSelectedPolygonIndex(index); // Set the clicked polygon as selected
@@ -91,11 +90,37 @@ const Map: React.FC = () => {
   const handleDeletePolygon = () => {
     if (selectedPolygonIndex !== null) {
       const polygonToRemove = polygons[selectedPolygonIndex];
-      polygonToRemove.setMap(null); // Remove the selected polygon from the map
+      polygonToRemove.setMap(null); // Remove polygon from the map
       setPolygons((prevPolygons) =>
         prevPolygons.filter((_, index) => index !== selectedPolygonIndex)
-      ); // Remove the polygon from the state
-      setSelectedPolygonIndex(null); // Clear the selected polygon reference
+      );
+      setSelectedPolygonIndex(null);
+    }
+  };
+
+  const handleAddPoint = (event: google.maps.MapMouseEvent) => {
+    if (selectedPolygonIndex !== null && event.latLng) {
+      const selectedPolygon = polygons[selectedPolygonIndex];
+      const path = selectedPolygon.getPath();
+      path.push(event.latLng); // Add the new point to the polygon's path
+      selectedPolygon.setPath(path); // Update the polygon with the new path
+    }
+  };
+
+  const handleRemovePoint = (event: google.maps.MapMouseEvent) => {
+    if (selectedPolygonIndex !== null && event.latLng) {
+      const selectedPolygon = polygons[selectedPolygonIndex];
+      const path = selectedPolygon.getPath();
+      let indexToRemove: number | null = null;
+      path.forEach((latLng, index) => {
+        if (latLng.equals(event.latLng)) {
+          indexToRemove = index;
+        }
+      });
+      if (indexToRemove !== null) {
+        path.removeAt(indexToRemove); // Remove the point from the polygon's path
+        selectedPolygon.setPath(path); // Update the polygon with the new path
+      }
     }
   };
 
@@ -112,13 +137,15 @@ const Map: React.FC = () => {
             zoom={10}
             onLoad={onLoad}
             onUnmount={onUnmount}
+            onClick={handleAddPoint} // Handle adding points
+            onDblClick={handleRemovePoint} // Handle removing points
           >
             <DrawingManager
               onPolygonComplete={onPolygonComplete}
               options={{
                 drawingControl: true,
                 drawingControlOptions: {
-                  drawingModes: ["polygon"] as google.maps.drawing.OverlayType[], // Explicitly type the array
+                  drawingModes: ["polygon"] as google.maps.drawing.OverlayType[],
                 },
               }}
             />
@@ -170,7 +197,7 @@ const Map: React.FC = () => {
         <button onClick={handleCurrentLocation} style={{ display: "block", marginBottom: "10px" }}>
           Current Location
         </button>
-        <button onClick={handleDeletePolygon} style={{ display: "block" }}>
+        <button onClick={handleDeletePolygon} style={{ display: "block", marginBottom: "10px" }}>
           Delete Selected Polygon
         </button>
       </div>
