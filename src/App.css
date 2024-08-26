@@ -36,3 +36,20 @@
     transform: rotate(360deg);
   }
 }
+
+.ant-layout-sider-trigger {
+  background: #ffffff !important; /* Force white background */
+  border: none !important; /* Remove border */
+}
+
+/* Style the icon inside the collapse button */
+.ant-layout-sider-trigger .anticon {
+  color: #1890ff !important; /* Set icon color */
+}
+
+/* Optional: Style the button when hovered or focused */
+.ant-layout-sider-trigger:hover,
+.ant-layout-sider-trigger:focus {
+  background: #ffffff !important; /* Ensure white background on hover/focus */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); /* Optional shadow effect */
+}

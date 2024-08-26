@@ -16,7 +16,14 @@ const resources = {
       "owner": "Owner",
       "landType": "Land Type",
       "marketValue": "Market Value",
-      "notes": "Notes"
+      "notes": "Notes",
+      "map": "Map",
+      "earth": "Earth",
+      "hybrid": "Hybrid",
+      "terrain": "Terrain",
+      "current_location": "Current Location",
+      "mark_location": "Mark Location",
+      "delete_polygon": "Delete Polygon"
     }
   },
   bn: {
@@ -29,7 +36,14 @@ const resources = {
       "owner": "মালিক",
       "landType": "জমির ধরন",
       "marketValue": "বাজার মূল্য",
-      "notes": "নোট"
+      "notes": "নোট",
+      "map": "ম্যাপ",
+      "earth": "আর্থ",
+      "hybrid": "হাইব্রিড",
+      "terrain": "ভূখণ্ড",
+      "current_location": "বর্তমান অবস্থান",
+      "mark_location": "অবস্থান চিহ্নিত করুন",
+      "delete_polygon": "পলিগন সরান"
     }
   }
 };

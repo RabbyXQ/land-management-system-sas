@@ -13,6 +13,7 @@ const theme = extendTheme({
       body: {
         bg: mode("gray.100", "gray.800")(props),
         color: mode("black", "white")(props),
+
       },
     }),
   },

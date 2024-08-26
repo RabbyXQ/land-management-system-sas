@@ -1,5 +1,14 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useRef, useState, useEffect } from "react";
 import { GoogleMap, LoadScript, Polygon, DrawingManager, Marker } from "@react-google-maps/api";
+import { Button, Typography, Card, Select, notification } from "antd";
+import { EditOutlined, DeleteOutlined, SaveOutlined, EnvironmentOutlined } from '@ant-design/icons';
+import axios from 'axios';
+
+interface MapProps {
+  id: number;
+}
+
+const { Option } = Select;
 
 const containerStyle = {
   width: "100%",
@@ -11,197 +20,274 @@ const defaultCenter = {
   lng: -38.523,
 };
 
-const Map: React.FC = () => {
-  const [polygons, setPolygons] = useState<google.maps.Polygon[]>([]);
-  const [currentLocation, setCurrentLocation] = useState<google.maps.LatLngLiteral | null>(null);
-  const [markedLocation, setMarkedLocation] = useState<google.maps.LatLngLiteral | null>(null);
+const Map: React.FC<MapProps> = ({ id }) => {
+  const [polygons, setPolygons] = useState<google.maps.LatLngLiteral[][]>([]);
   const [selectedPolygonIndex, setSelectedPolygonIndex] = useState<number | null>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [mapRef, setMapRef] = useState<google.maps.Map | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<google.maps.LatLngLiteral | null>(null);
+  const polygonRefs = useRef<google.maps.Polygon[]>([]);
+
+  useEffect(() => {
+    const fetchPolygons = async () => {
+      try {
+        const response = await axios.get(`http://localhost:4000/lands/${id}`);
+        const { polygons } = response.data;
+        setPolygons(polygons);
+
+        if (polygons.length > 0 && polygons[0].length > 0) {
+          const firstPoint = polygons[0][0];
+          mapRef?.setCenter(new google.maps.LatLng(firstPoint.lat, firstPoint.lng));
+          mapRef?.setZoom(14);
+        } else {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const { latitude, longitude } = position.coords;
+              const location = { lat: latitude, lng: longitude };
+              setCurrentLocation(location);
+              mapRef?.setCenter(location);
+              mapRef?.setZoom(14);
+            },
+            (error) => {
+              console.error("Error getting current location:", error);
+              mapRef?.setCenter(defaultCenter);
+            }
+          );
+        }
+      } catch (error) {
+        console.error("Error fetching polygon data:", error);
+        mapRef?.setCenter(defaultCenter);
+      }
+    };
+
+    fetchPolygons();
+  }, [id, mapRef]);
 
   const onLoad = useCallback((map: google.maps.Map) => {
-    mapRef.current = map;
-    if (navigator.geolocation) {
+    setMapRef(map);
+  }, []);
+
+  const onUnmount = useCallback(() => {
+    setMapRef(null);
+  }, []);
+
+  const handleMarkCurrentLocation = () => {
+    if (currentLocation && mapRef) {
+      mapRef.setCenter(new google.maps.LatLng(currentLocation.lat, currentLocation.lng));
+      mapRef.setZoom(14); // Adjust zoom level if needed
+    } else {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
           setCurrentLocation({ lat: latitude, lng: longitude });
-          map.setCenter({ lat: latitude, lng: longitude });
-        },
-        () => {
-          console.error("Error getting current location");
-          map.setCenter(defaultCenter);
-        }
-      );
-    } else {
-      console.error("Geolocation is not supported by this browser.");
-      map.setCenter(defaultCenter);
-    }
-  }, []);
-
-  const onUnmount = useCallback(() => {
-    mapRef.current = null;
-  }, []);
-
-  const onPolygonComplete = useCallback((polygon: google.maps.Polygon) => {
-    polygon.setMap(null); // Remove the polygon from DrawingManager after it's drawn
-    setPolygons((prevPolygons) => [...prevPolygons, polygon]);
-    polygon.addListener("click", () => {
-      const index = polygons.indexOf(polygon);
-      setSelectedPolygonIndex(index); // Set the clicked polygon as selected
-    });
-  }, [polygons]);
-
-  const handleMarkLocation = () => {
-    if (mapRef.current) {
-      const center = mapRef.current.getCenter();
-      if (center) {
-        setMarkedLocation(center.toJSON());
-      }
-    }
-  };
-
-  const handleCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          const newLocation = { lat: latitude, lng: longitude };
-          setCurrentLocation(newLocation);
-          if (mapRef.current) {
-            mapRef.current.setCenter(newLocation);
+          if (mapRef) {
+            mapRef.setCenter(new google.maps.LatLng(latitude, longitude));
+            mapRef.setZoom(14); // Adjust zoom level as needed
           }
         },
-        () => {
-          console.error("Error getting current location");
+        (error) => {
+          console.error("Error getting current location:", error);
+          if (mapRef) {
+            mapRef.setCenter(defaultCenter);
+          }
         }
       );
-    } else {
-      console.error("Geolocation is not supported by this browser.");
     }
   };
 
-  const handleMarkerDragEnd = (event: google.maps.MapMouseEvent) => {
-    setMarkedLocation({
-      lat: event.latLng?.lat() || 0,
-      lng: event.latLng?.lng() || 0,
-    });
-  };
+  const handlePolygonComplete = useCallback((polygon: google.maps.Polygon) => {
+    const path = polygon.getPath().getArray();
+    const newPolygon = path.map(point => ({
+      lat: point.lat(),
+      lng: point.lng(),
+    }));
+    setPolygons(prevPolygons => [...prevPolygons, newPolygon]);
+    polygonRefs.current.push(polygon);
+  }, []);
 
-  const handleDeletePolygon = () => {
-    if (selectedPolygonIndex !== null) {
-      const polygonToRemove = polygons[selectedPolygonIndex];
-      polygonToRemove.setMap(null); // Remove polygon from the map
-      setPolygons((prevPolygons) =>
-        prevPolygons.filter((_, index) => index !== selectedPolygonIndex)
-      );
-      setSelectedPolygonIndex(null);
+  const handlePolygonChange = () => {
+    if (selectedPolygonIndex !== null && polygonRefs.current[selectedPolygonIndex]) {
+      const updatedPolygons = [...polygons];
+      const currentPolygon = polygonRefs.current[selectedPolygonIndex];
+      const path = currentPolygon.getPath();
+      updatedPolygons[selectedPolygonIndex] = path.getArray().map(point => ({
+        lat: point.lat(),
+        lng: point.lng(),
+      }));
+      setPolygons(updatedPolygons);
     }
   };
 
-  const handleAddPoint = (event: google.maps.MapMouseEvent) => {
-    if (selectedPolygonIndex !== null && event.latLng) {
-      const selectedPolygon = polygons[selectedPolygonIndex];
-      const path = selectedPolygon.getPath();
-      path.push(event.latLng); // Add the new point to the polygon's path
-      selectedPolygon.setPath(path); // Update the polygon with the new path
+  const handleEditToggle = () => {
+    if (isEditing) {
+      handlePolygonChange();
     }
+    setIsEditing(!isEditing);
   };
 
-  const handleRemovePoint = (event: google.maps.MapMouseEvent) => {
-    if (selectedPolygonIndex !== null && event.latLng) {
-      const selectedPolygon = polygons[selectedPolygonIndex];
-      const path = selectedPolygon.getPath();
-      let indexToRemove: number | null = null;
-      path.forEach((latLng, index) => {
-        if (latLng.equals(event.latLng)) {
-          indexToRemove = index;
-        }
+  const handleUpdate = async () => {
+    try {
+      notification.info({
+        message: 'Updating...',
+        description: 'Polygons are being saved, please wait...',
+        duration: 2,
       });
-      if (indexToRemove !== null) {
-        path.removeAt(indexToRemove); // Remove the point from the polygon's path
-        selectedPolygon.setPath(path); // Update the polygon with the new path
+
+      await axios.put(`http://localhost:4000/lands/${id}`, { polygons });
+
+      notification.success({
+        message: 'Saving Successful',
+        description: 'Polygons saved successfully!',
+        duration: 2,
+      });
+    } catch (error) {
+      console.error("Error updating polygons:", error);
+      notification.error({
+        message: 'Saving Failed',
+        description: 'An error occurred while updating polygons.',
+        duration: 2,
+      });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (selectedPolygonIndex !== null) {
+      try {
+        notification.info({
+          message: 'Deleting...',
+          description: 'Polygon is being deleted, please wait...',
+          duration: 2,
+        });
+
+        const updatedPolygons = polygons.filter((_, index) => index !== selectedPolygonIndex);
+        setPolygons(updatedPolygons);
+
+        const polygonToRemove = polygonRefs.current[selectedPolygonIndex];
+        if (polygonToRemove) {
+          polygonToRemove.setMap(null);
+        }
+
+        await axios.put(`http://localhost:4000/lands/${id}`, { polygons: updatedPolygons });
+
+        notification.success({
+          message: 'Delete Successful',
+          description: 'Polygon deleted successfully!',
+          duration: 2,
+        });
+      } catch (error) {
+        console.error("Error deleting polygon:", error);
+        notification.error({
+          message: 'Delete Failed',
+          description: 'An error occurred while deleting the polygon.',
+          duration: 2,
+        });
       }
+    }
+  };
+
+  const handleSelectPolygon = (index: number) => {
+    setSelectedPolygonIndex(index);
+    if (mapRef && polygons[index]) {
+      const bounds = new google.maps.LatLngBounds();
+      polygons[index].forEach(point => {
+        bounds.extend(new google.maps.LatLng(point.lat, point.lng));
+      });
+      mapRef.fitBounds(bounds);
+      mapRef.setZoom(14);
     }
   };
 
   return (
-    <div style={{ position: "relative", height: "100%" }}>
-      <div style={{ position: "relative", height: "400px" }}>
-        <LoadScript
-          googleMapsApiKey="AIzaSyBI5XtEyQENmu9h8-8wUdxUDAj2J9vQFSg"
-          libraries={['drawing']}  // <-- Add this line to include the drawing library
-        >
+    <Card style={{ padding: '16px', borderRadius: '8px', boxShadow: '0 4px 8px rgba(0,0,0,0.1)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <Select
+            placeholder="Select polygon"
+            style={{ marginRight: '16px' }}
+            value={selectedPolygonIndex !== null ? selectedPolygonIndex : undefined}
+            onChange={value => handleSelectPolygon(value as number)}
+          >
+            {polygons.map((_, index) => (
+              <Option key={index} value={index}>
+                Polygon {index + 1}
+              </Option>
+            ))}
+          </Select>
+          <Button onClick={handleEditToggle} type="default" icon={<EditOutlined />} style={{ marginRight: '16px' }}>
+            {isEditing ? 'Cancel' : 'Edit'}
+          </Button>
+          {isEditing && (
+            <>
+              <Button onClick={handleUpdate} type="primary" icon={<SaveOutlined />} style={{ marginLeft: '8px' }}>
+                Save
+              </Button>
+              <Button onClick={handleDelete} icon={<DeleteOutlined />} style={{ backgroundColor: 'red', color: 'white', marginLeft: '8px' }}>
+                Delete
+              </Button>
+            </>
+          )}
+          <Button
+            onClick={handleMarkCurrentLocation}
+            type="default"
+            icon={<EnvironmentOutlined />}
+            style={{ marginLeft: '8px' }}
+          >
+            Mark Current Location
+          </Button>
+        </div>
+      </div>
+      <div style={{ width: '100%', height: '400px' }}>
+        <LoadScript googleMapsApiKey="AIzaSyCfRoXEZIuzNchjkbTYFjDn-XL3N3dQ41k" libraries={['drawing']}>
           <GoogleMap
             mapContainerStyle={containerStyle}
             center={defaultCenter}
-            zoom={10}
+            zoom={14}
             onLoad={onLoad}
             onUnmount={onUnmount}
-            onClick={handleAddPoint} // Handle adding points
-            onDblClick={handleRemovePoint} // Handle removing points
           >
-            <DrawingManager
-              onPolygonComplete={onPolygonComplete}
-              options={{
-                drawingControl: true,
-                drawingControlOptions: {
-                  drawingModes: ["polygon"] as google.maps.drawing.OverlayType[],
-                },
-              }}
-            />
-
             {polygons.map((polygon, index) => (
               <Polygon
                 key={index}
-                paths={polygon.getPath().getArray().map(latLng => latLng.toJSON())}
+                paths={polygon}
                 options={{
-                  fillColor: "blue",
-                  fillOpacity: 0.3,
-                  strokeColor: "blue",
-                  strokeOpacity: 1,
+                  fillColor: "#FF0000",
+                  fillOpacity: 0.35,
+                  strokeColor: "#FF0000",
+                  strokeOpacity: 0.8,
                   strokeWeight: 2,
-                  clickable: true,
-                  editable: true,
-                  draggable: true,
+                  editable: isEditing,
                 }}
-                onClick={() => setSelectedPolygonIndex(index)}
               />
             ))}
-
             {currentLocation && (
-              <Marker
-                position={currentLocation}
-                label="You are here"
-              />
+              <Marker position={currentLocation} title="Current Location" />
             )}
-
-            {markedLocation && (
-              <Marker
-                position={markedLocation}
-                label="Marked Location"
-                icon={{
-                  url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png",
+            {isEditing && (
+              <DrawingManager
+                onPolygonComplete={handlePolygonComplete}
+                drawingMode={google.maps.drawing.OverlayType.POLYGON}
+                options={{
+                  drawingControl: true,
+                  drawingControlOptions: {
+                    position: google.maps.ControlPosition.TOP_CENTER,
+                    drawingModes: [google.maps.drawing.OverlayType.POLYGON],
+                  },
+                  polygonOptions: {
+                    fillColor: "#FF0000",
+                    fillOpacity: 0.35,
+                    strokeColor: "#FF0000",
+                    strokeOpacity: 0.8,
+                    strokeWeight: 2,
+                    clickable: true,
+                    editable: true,
+                  },
                 }}
-                draggable={true}
-                onDragEnd={handleMarkerDragEnd}
               />
             )}
           </GoogleMap>
         </LoadScript>
       </div>
-
-      <div style={{ position: "absolute", top: "420px", left: "10px", zIndex: 1 }}>
-        <button onClick={handleMarkLocation} style={{ display: "block", marginBottom: "10px" }}>
-          Mark Location
-        </button>
-        <button onClick={handleCurrentLocation} style={{ display: "block", marginBottom: "10px" }}>
-          Current Location
-        </button>
-        <button onClick={handleDeletePolygon} style={{ display: "block", marginBottom: "10px" }}>
-          Delete Selected Polygon
-        </button>
-      </div>
-    </div>
+    </Card>
   );
 };
 
